@@ -1,0 +1,1 @@
+32 bit version seems to work better than 64 bit version even on 64 bit systems.
