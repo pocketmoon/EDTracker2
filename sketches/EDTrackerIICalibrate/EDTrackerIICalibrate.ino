@@ -412,7 +412,7 @@ void update_bias()
       
     if (adjustAccel == 0  || adjustAccel ==3)  
     {
-      if (accel[2] > 163849) aBias[2]++; 
+      if (accel[2] > 16384) aBias[2]++; 
       else if (accel[2] < 16384) aBias[2]--;
     }
 
