@@ -23,7 +23,7 @@ const char* PROGMEM infoString = "EDTrackerII V2.9";
 // 2014-06-02 Push bias to DMP rather than MPU
 // 2014-06-03 Remove revision for now.
 // 2014-06-11 Put revision back in plus temps. Toggle linear/exp via UI. Say Hi.
-// 2014-06-15 Fix yaw lock at 180
+// 2014-06-15 Fix yaw lock at 180. Reduce recalibration delay
 
 
 /* ============================================
