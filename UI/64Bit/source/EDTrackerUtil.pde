@@ -2,7 +2,9 @@
 //            Add toggle for this behaviour
 // 31/05/2014 Show actual raw z (not biased here for g)
 // 10/06/2014 Enlarge window. Add smarfter com port handling
-// 11/06/2014 Enable updating of accel biax axis individually
+// 11/06/2014 Enable updating of accel bias axis individually
+// 15/06/2014 Add display of magnetometer heading, if available
+
 import javax.swing.JFrame;
 
 PFrame f;
@@ -28,10 +30,12 @@ TriangleMesh mesh;
 ToxiclibsSupport gfx;
 
 float rad2deg = 57.29578;
+float deg2rad = 1.0/rad2deg;
 float rad2FSR = 10430.06;
 
 float maxGX, maxGY, maxGZ;
 float maxAX, maxAY, maxAZ;
+float heading=999;
 
 float scaleAdjust=1.0;
 String   scaleMode="Unknown";
@@ -88,6 +92,8 @@ iLowPass lpX, lpY, lpZ;
 
 iLowPass aX, aY, aZ;
 iLowPass gX, gY, gZ;
+
+fLowPass magLP;
 boolean found = false;
 
 
@@ -196,6 +202,8 @@ void setup() {
   gY = new iLowPass(160);
   gZ = new iLowPass(160);
   
+  magLP = new fLowPass(60);
+  
   f.hide();
 }
 
@@ -282,7 +290,8 @@ void serialEvent(Serial p) {
       {
         println("Silent");
         monitoring = false;
-      } else if (data[0].equals("s"))
+      } 
+      else if (data[0].equals("s"))
       {
         //println("Scaling mod");
         if (data[1].equals("R"))
@@ -315,10 +324,14 @@ void serialEvent(Serial p) {
         gX.input (int(data[6]));
         gY.input (int(data[7]));
         gZ.input (int(data[8]));
-
+                
         rawGyroX = gX.output;
         rawGyroY = gY.output;
         rawGyroZ = gZ.output;
+        
+        magLP.input(float(data[9]));
+        //heading =float(data[9]);// magLP.output;
+        heading =magLP.output;
 
         //        if (abs(rawAccelX) > maxAX)    maxAX = abs(rawAccelX) ;
         //        if (abs(rawAccelY) > maxAY)    maxAY = abs(rawAccelY) ;
@@ -400,6 +413,8 @@ void draw() {
       if (key == '0') 
       {
         arduinoPort.write('0');
+        delay(200);
+        arduinoPort.write('I');
       }
 
       if (key == 'a') 
@@ -518,10 +533,13 @@ void draw() {
     else
     {
       text("9 Recalc Bias Values", 10, 280);
-      text("x Set X Accel Bias Only", 10, 300);
-      text("y Set Y Accel Bias Only", 10, 320);
-      text("z Set Z Accel Bias Only", 10, 340);
-      text("a Set All Accel Biases", 10, 360);
+      text("0 Reset to Factory Bias", 10, 300);
+      
+      text("x Set X Accel Bias Only", 10, 320);
+      text("y Set Y Accel Bias Only", 10, 340);
+      text("z Set Z Accel Bias Only", 10, 380);
+      text("a Set All Accel Biases", 10, 400);
+      
 
     }
   }
@@ -538,6 +556,10 @@ void draw() {
     text (nfp( DMPPitch*rad2deg, 0, 2), (int)width-100, 100);
     text("DMP Roll", (int)width-240, 140);
     text (nfp(DMPRoll*rad2deg, 0, 2), (int)width-100, 140);
+    
+    text("Heading", (int)width-240, 160);
+    text (nfp(heading*rad2deg, 0, 2), (int)width-100, 160);
+    
   } else
   {
     if (adjustX == 1 && adjustY ==1 && adjustZ ==1)
@@ -680,6 +702,7 @@ void draw() {
   translate(width/2, height/2-20, 100);
 
   rotateY(DMPYaw   );// + yawOffset);
+  //rotateY(heading);
   rotateX(DMPPitch );// + pitchOffset);
 
   gfx.origin(new Vec3D(), 200);
