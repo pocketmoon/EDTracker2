@@ -2,7 +2,7 @@
 //  Head Tracker Sketch
 //
 
-const char* PROGMEM infoString = "ED Tracker Calibration V2.3;
+const char* PROGMEM infoString = "ED Tracker Calibration V2.3";
 
 //
 // Changelog:
@@ -169,9 +169,9 @@ unsigned char more ;
 unsigned long sensor_timestamp;
 short gyro[3], accel[3], sensors;
 boolean blinkState;
-unsigned long tick = 0, tick2=0;
+unsigned long tick = 0, tick2 = 0;
 float lastX;
-int samples =0;
+int samples = 0;
 void loop()
 {
   parseInput();
@@ -213,23 +213,23 @@ void loop()
     tripple(gyro);
     Serial.println("");
     samples++;
-    
+
     if (millis() > tick2)
     {
-      tick2=millis() + 2000;
-       long t;
-       mpu_get_temperature (&t,0);
+      tick2 = millis() + 2000;
+      long t;
+      mpu_get_temperature (&t, 0);
       Serial.print("T\t");
       Serial.println(t);
-      
+
       Serial.print("D\t");
-      Serial.print((newX-lastX)/(float)samples);
+      Serial.print((newX - lastX) / (float)samples);
       Serial.print("\t");
       Serial.println(0);
 
-      samples=0;
-      lastX=newX;
-     
+      samples = 0;
+      lastX = newX;
+
     }
   }
   return;
@@ -239,7 +239,7 @@ void loop()
 //add fine adjust / single axis adjust
 //toggle Gyro
 //toggle Accel
-//toggle x y z 
+//toggle x y z
 //
 //cool!
 
@@ -257,29 +257,29 @@ void parseInput()
     }
     else if (command == 'x')
     {
-      adjustAccel=1;
+      adjustAccel = 1;
       Serial.println("x");
     }
     else if (command == 'y')
     {
-      adjustAccel=2;
-            Serial.println("y");
+      adjustAccel = 2;
+      Serial.println("y");
     }
     else if (command == 'z')
     {
-      adjustAccel=3;
-            Serial.println("z");
+      adjustAccel = 3;
+      Serial.println("z");
     }
     else if (command == 'a')
     {
-      adjustAccel = 0; 
+      adjustAccel = 0;
       Serial.println("a");
     }
     else if (command == '0')
     {
-      for (int i = 0;i<3;i++) 
+      for (int i = 0; i < 3; i++)
         gBias[i] = aBias[i] = 0;
-      saveBias();         
+      saveBias();
     }
     else if (command == 'V')
     {
@@ -288,7 +288,7 @@ void parseInput()
       //Serial.println(infoString);
       outputMode = true;
     }
-     else if (command == 'H')
+    else if (command == 'H')
     {
       Serial.println("H"); // Hello
     }
@@ -405,35 +405,35 @@ void update_bias()
 
     dmp_read_fifo(gyro, accel, quat, &sensor_timestamp, &sensors, &more);
 
-    if (adjustAccel == 0  || adjustAccel ==1)
+    if (adjustAccel == 0  || adjustAccel == 1)
     {
-      if (accel[0] >= 1) aBias[0]++; 
+      if (accel[0] >= 1) aBias[0]++;
       else if (accel[0] <= -1) aBias[0]--;
     }
-    
-    if (adjustAccel == 0  || adjustAccel ==2)
+
+    if (adjustAccel == 0  || adjustAccel == 2)
     {
-      if (accel[1] >= 1) aBias[1]++; 
+      if (accel[1] >= 1) aBias[1]++;
       else if (accel[1] <= -1) aBias[1]--;
     }
-      
-    if (adjustAccel == 0  || adjustAccel ==3)  
+
+    if (adjustAccel == 0  || adjustAccel == 3)
     {
-      if (accel[2] > 16384) aBias[2]++; 
+      if (accel[2] > 16384) aBias[2]++;
       else if (accel[2] < 16384) aBias[2]--;
     }
 
- if (adjustAccel == 0)
- {
-    if (gyro[0] > 1) gBias[0] = gBias[0] - 1;
-    else if (gyro[0] < -1) gBias[0] = gBias[0] + 1;
+    if (adjustAccel == 0)
+    {
+      if (gyro[0] > 1) gBias[0] = gBias[0] - 1;
+      else if (gyro[0] < -1) gBias[0] = gBias[0] + 1;
 
-    if (gyro[1] > 1) gBias[1]--;
-    else if (gyro[1] < -1) gBias[1]++;
+      if (gyro[1] > 1) gBias[1]--;
+      else if (gyro[1] < -1) gBias[1]++;
 
-    if (gyro[2] > 1) gBias[2]--;
-    else if (gyro[2] < -1) gBias[2]++;
- }
+      if (gyro[2] > 1) gBias[2]--;
+      else if (gyro[2] < -1) gBias[2]++;
+    }
 
     mess("M\tGyro Bias ", gBias);
     mess("M\tAccell Bias ", aBias);
@@ -456,7 +456,7 @@ void update_bias()
 
 void saveBias()
 {
-   for (  int i = 0; i < 3; i++)
+  for (  int i = 0; i < 3; i++)
   {
     writeLongEE (EE_XGYRO + i * 4, gBias[i]);
     writeLongEE (EE_XACCEL + i * 4, aBias[i]);
@@ -528,9 +528,9 @@ void flipBias()
 
   for (int i = 0; i < 3; i++)
   {
-    a[i] = (long)(gBias[i]*32767); // in +/- 1000dps con to phys Q16
+    a[i] = (long)(gBias[i] * 32767); // in +/- 1000dps con to phys Q16
 
-  Serial.print("M\t UGH ");
+    Serial.print("M\t UGH ");
     Serial.println(a[i]);
   }
   dmp_set_gyro_bias(a);
