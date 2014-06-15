@@ -2,7 +2,7 @@
 //  Head Tracker Sketch
 //
 
-const char* PROGMEM infoString = "ED Tracker Calibration V2.2";
+const char* PROGMEM infoString = "ED Tracker Calibration V2.3;
 
 //
 // Changelog:
@@ -10,6 +10,7 @@ const char* PROGMEM infoString = "ED Tracker Calibration V2.2";
 // 2014-05-20 Replace calibration loop - simple iterative method
 // 2014-06-02 Mess around with stuff
 // 2014-06-10 Add temps. Allow individial biasing of accel axis
+// 2014-06-15 Add option to clear bias to factory defaults
 
 /* ============================================
 EDTracker device code is placed under the MIT License
@@ -274,6 +275,12 @@ void parseInput()
       adjustAccel = 0; 
       Serial.println("a");
     }
+    else if (command == '0')
+    {
+      for (int i = 0;i<3;i++) 
+        gBias[i] = aBias[i] = 0;
+      saveBias();         
+    }
     else if (command == 'V')
     {
       Serial.println("V"); //verbose
@@ -442,16 +449,19 @@ void update_bias()
   mess("M\tGyro Bias ", gBias);
   mess("M\tAccel Bias ", aBias);
 
-  for ( i = 0; i < 3; i++)
-  {
-    writeLongEE (EE_XGYRO + i * 4, gBias[i]);
-    writeLongEE (EE_XACCEL + i * 4, aBias[i]);
-  }
-
+  saveBias();
   loadBiases();
   return;
 }
 
+void saveBias()
+{
+   for (  int i = 0; i < 3; i++)
+  {
+    writeLongEE (EE_XGYRO + i * 4, gBias[i]);
+    writeLongEE (EE_XACCEL + i * 4, aBias[i]);
+  }
+}
 
 void tripple(short *v)
 {
