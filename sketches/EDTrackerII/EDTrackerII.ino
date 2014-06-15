@@ -23,6 +23,7 @@ const char* PROGMEM infoString = "EDTrackerII V2.9";
 // 2014-06-02 Push bias to DMP rather than MPU
 // 2014-06-03 Remove revision for now.
 // 2014-06-11 Put revision back in plus temps. Toggle linear/exp via UI. Say Hi.
+// 2014-06-15 Fix yaw lock at 180
 
 
 /* ============================================
@@ -342,9 +343,6 @@ void loop()
       newX = newX   * 10430.06;
       newY = newY   * 10430.06;
       newZ = newZ   * 10430.06;
-      
-              // Before we mess with any of the DMP data log it to the UI if enabled
-    
 
       if (!calibrated)
       {
@@ -364,7 +362,7 @@ void loop()
 
           dX = dY = dZ = 0.0;
           driftSamples = -2;
-          recalibrateSamples = 200;// reduce calibrate next time around
+          recalibrateSamples = 100;// reduce calibrate next time around
           if (outputMode == UI)
           {
             Serial.print("I\t");
@@ -387,12 +385,20 @@ void loop()
       unsigned long timestamp;
 
       // mpu_get_compass_reg(mag, &timestamp);
-
+      
       // apply calibration offsets
       newX = newX - cx;
+      
+      // this should take us back to zero BUT we may have wrapped so ..
+      if (newX < -32767.0)
+        newX += 32767.0;
+      
+      if (newX> 32767.0)
+        newX -= 32767.0  ;
+      
       newY = newY - cy;
       newZ = newZ - cz;
-
+   
       //clamp at 90 degrees left and right
       newX = constrain(newX, -16383.0, 16383.0);
       newY = constrain(newY, -16383.0, 16383.0);
