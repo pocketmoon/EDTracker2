@@ -1,13 +1,13 @@
 //TODO
 //enable scale adjust ? via UI  + -
-//add mouse emu 
+//add mouse emu
 
 
 //
 //  Head Tracker Sketch
 //
 
-const char* PROGMEM infoString = "EDTrackerII V2.9";
+const char* PROGMEM infoString = "EDTrackerII V2.10";
 
 //
 // Changelog:
@@ -24,6 +24,7 @@ const char* PROGMEM infoString = "EDTrackerII V2.9";
 // 2014-06-03 Remove revision for now.
 // 2014-06-11 Put revision back in plus temps. Toggle linear/exp via UI. Say Hi.
 // 2014-06-15 Fix yaw lock at 180. Reduce recalibration delay
+// 2014-06-20 Wrap drift comp value and also wrap DMP + drift comp to prevent yaw lock
 
 
 /* ============================================
@@ -133,7 +134,7 @@ enum outputModeType {
 outputModeType outputMode = OFF;
 
 float lastX, lastY, lastZ;
-float dX,dY,dZ;
+float dX, dY, dZ;
 int driftSamples = 0;
 boolean expScaleMode = 0;
 float   scaleAdjust = 1.0;
@@ -143,7 +144,7 @@ unsigned char revision;
 unsigned long lastMillis;
 unsigned long lastUpdate;
 
-float cx,cy,cz = 0.0;
+float cx, cy, cz = 0.0;
 
 long gBias[3], aBias[3], fBias[3];;
 
@@ -385,20 +386,20 @@ void loop()
       unsigned long timestamp;
 
       // mpu_get_compass_reg(mag, &timestamp);
-      
+
       // apply calibration offsets
       newX = newX - cx;
-      
+
       // this should take us back to zero BUT we may have wrapped so ..
-      if (newX < -32767.0)
-        newX += 32767.0;
-      
-      if (newX> 32767.0)
-        newX -= 32767.0  ;
-      
+      if (newX < -32768.0)
+        newX += 65536.0;
+
+      if (newX > 32768.0)
+        newX -= 65536.0 ;
+
       newY = newY - cy;
       newZ = newZ - cz;
-   
+
       //clamp at 90 degrees left and right
       newX = constrain(newX, -16383.0, 16383.0);
       newY = constrain(newY, -16383.0, 16383.0);
@@ -425,12 +426,12 @@ void loop()
       iX = constrain(iX, -32767, 32767);
       iY = constrain(iY, -32767, 32767);
       iZ = constrain(iZ, -32767, 32767);
-      
+
       // Do it to it.
       joySt.xAxis = iX ;
       joySt.yAxis = iY;
       joySt.zAxis = iZ;
-      
+
       if (outputMode == UI)
       {
         Serial.print(iX ); // Yaw
@@ -479,7 +480,6 @@ void loop()
         }
       }
 
-
       parseInput();
 
       // Apply X axis drift compensation every 1 second
@@ -487,6 +487,12 @@ void loop()
       {
         //depending on your mounting
         cx = cx + xDriftComp;
+
+        if (cx > 65536.0)
+          cx = cx - 65536.0;
+        else if (cx < -65536.0 )
+          cx = cx + 65536.0;
+
         lastUpdate = nowMillis + 100;
 
         driftSamples++;
@@ -518,14 +524,11 @@ void loop()
           //          Serial.println(reports);
           reports = 0;
 
-
           long t;
           mpu_get_temperature (&t, 0);
           Serial.print("T\t");
           Serial.println(t);
         }
-
-
 
         //        DEBUG_PRINT("\t\t");
         //        DEBUG_PRINT(dY / (float)driftSamples );
@@ -638,11 +641,10 @@ void parseInput()
       Serial.print("R\t");
       Serial.println(xDriftComp);
     }
-    //    else if (command == 'F')
-    //    {
-    //      //flip where bias values are stored
-    //      pushBias2DMP();
-    //    }
+//    else if (command == 'F')
+//    {
+//      pushBias2DMP();
+//    }
 
     while (Serial.available() > 0)
       command = Serial.read();

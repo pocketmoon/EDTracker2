@@ -2,7 +2,7 @@
 //  Head Tracker Sketch
 //
 
-const char* PROGMEM infoString = "ED Tracker Calibration V2.3";
+const char* PROGMEM infoString = "ED Tracker Calibration V2.4";
 
 //
 // Changelog:
@@ -11,6 +11,7 @@ const char* PROGMEM infoString = "ED Tracker Calibration V2.3";
 // 2014-06-02 Mess around with stuff
 // 2014-06-10 Add temps. Allow individial biasing of accel axis
 // 2014-06-15 Add option to clear bias to factory defaults
+// 2014-06-22 Fix LED blinking
 
 /* ============================================
 EDTracker device code is placed under the MIT License
@@ -180,6 +181,7 @@ void loop()
   {
     tick = millis() + 200;
     digitalWrite(LED_PIN, blinkState);
+    blinkState=!blinkState;
   }
 
   // libs chopped so timestamp not returned
