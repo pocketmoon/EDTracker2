@@ -1,1 +1,8 @@
-32 bit version seems to work better than 64 bit version even on 64 bit systems.
+
+** Do not use this version! ** 
+
+The UI221 version appears to solve the 'blank white window' issue that's 
+causes by a bug in the latest version of Processing.
+
+
+
