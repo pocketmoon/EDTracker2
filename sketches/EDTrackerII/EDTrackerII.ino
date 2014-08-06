@@ -7,7 +7,7 @@
 //  Head Tracker Sketch
 //
 
-const char* PROGMEM infoString = "EDTrackerII V2.10";
+const char* PROGMEM infoString = "EDTrackerII V2.20.3";
 
 //
 // Changelog:
@@ -25,7 +25,10 @@ const char* PROGMEM infoString = "EDTrackerII V2.10";
 // 2014-06-11 Put revision back in plus temps. Toggle linear/exp via UI. Say Hi.
 // 2014-06-15 Fix yaw lock at 180. Reduce recalibration delay
 // 2014-06-20 Wrap drift comp value and also wrap DMP + drift comp to prevent yaw lock
-
+// 2014-07-01 Add 'side mount' orientation numbers. Raise sping-back window
+// 2014-08-01 Add UI adjustable scaling. Arduino 157 compatible
+// 2014-08/03 Fix clash of 'save drift' and 'decrement yaw scale
+// 2014-08/04 Config based Poll MPU or interrupts 
 
 /* ============================================
 EDTracker device code is placed under the MIT License
@@ -53,13 +56,14 @@ THE SOFTWARE.
 */
 
 //Linear/exponential response now controled via UI
-float xExpScale = 8.0;
-float yExpScale = 8.0;
-float zExpScale = 8.0;
-
-float xScale = 4.0;
-float yScale = 4.0;
-float zScale = 4.0;
+//These are now default if not yet set by user via UI
+//float xExpScale = 8.0;
+//float yExpScale = 8.0;
+//float zExpScale = 8.0;
+//
+//float xScale = 4.0;
+//float yScale = 4.0;
+//float zScale = 4.0;
 
 //Variables used continual auto yaw compensation
 float dzX = 0.0;
@@ -67,7 +71,11 @@ float lX = 0.0;
 unsigned int ticksInZone = 0;
 unsigned int reports = 0;
 
-#define POLLMPUx
+boolean pollMPU = false;
+
+/* Starting sampling rate. Ignored if POLLMPU is defined above */
+#define DEFAULT_MPU_HZ    (200)
+// 50 ok
 
 #define EMPL_TARGET_ATMEGA328
 
@@ -111,8 +119,15 @@ float xDriftComp = 0.0;
 //0 for linear, 1 for exponential
 #define EE_EXPSCALEMODE 28
 
-//2 bytes   Q8:8
-#define EE_SCALEADJUST 29
+//2x 1 byte  in 6:2   0.25 steps should be ok
+#define EE_YAWSCALE 29
+#define EE_PITCHSCALE 30
+#define EE_YAWEXPSCALE 31
+#define EE_PITCHEXPSCALE 32
+
+#define EE_POLLMPU 33
+
+
 
 #define SDA_PIN 2
 #define SCL_PIN 3
@@ -137,7 +152,8 @@ float lastX, lastY, lastZ;
 float dX, dY, dZ;
 int driftSamples = 0;
 boolean expScaleMode = 0;
-float   scaleAdjust = 1.0;
+float   yawScale = 1.0;
+float   pitchScale = 1.0;
 unsigned char revision;
 
 // packet structure for InvenSense teapot demo
@@ -152,9 +168,10 @@ long gBias[3], aBias[3], fBias[3];;
 int   sampleCount = 0;
 boolean calibrated = false;
 
+// no longer needed
 //Allows the MPU6050 to settle for 10 seconds.
 //There should be no drift after this time
-unsigned short  calibrateTime     = 10000;
+unsigned short  calibrateTime     = 1000;
 
 //Number of samples to take when recalibrating
 byte  recalibrateSamples =  200;
@@ -162,6 +179,7 @@ byte  recalibrateSamples =  200;
 // Holds the time since sketch stared
 unsigned long  nowMillis;
 boolean blinkState;
+boolean hush = false;
 
 TrackState_t joySt;
 
@@ -169,12 +187,14 @@ TrackState_t joySt;
  * data from the driver(s).
  */
 
-static byte gyro_orients[4] =
+static byte gyro_orients[6] =
 {
   B10001000, // Z Up X Forward
   B10000101, // X right
   B10101100, // X Back
-  B10100001 // X Left
+  B10100001, // X Left
+  B01010100, // left ear
+  B01110000  // right ear
 }; //ZYX
 
 byte orientation = 1;
@@ -228,12 +248,32 @@ void setup() {
   orientation = constrain(EEPROM.read(EE_ORIENTATION), 0, 3);
 
   expScaleMode = EEPROM.read(EE_EXPSCALEMODE);
+  getScales();
+  
+  pollMPU = EEPROM.read(EE_POLLMPU);
+
+  // by default  
+  if (pollMPU >1)
+  {
+    pollMPU = 1;
+    EEPROM.write(EE_POLLMPU,pollMPU); 
+  }
+
+
+
 
   xDriftComp = (float)readIntEE(EE_XDRIFTCOMP) / 256.0;
 
   // join I2C bus (I2Cdev library doesn't do this automatically)
   Wire.begin();
-  TWBR = 12; // 24 400kHz I2C clock (200kHz if CPU is 8MHz)
+  TWBR = 12; // 12 400kHz I2C clock (200kHz if CPU is 8MHz)
+  /*
+  12       1       400   kHz  (the maximum supported frequency)
+  32       1       200   kHz
+  72       1       100   kHz  (the default)
+  152       1        50   kHz
+  78       4        25   kHz
+  158       4        12.5 kHz*/
 
   // Disable internal I2C pull-ups
   cbi(PORTD, 0);
@@ -275,8 +315,7 @@ void setup() {
 ****************************************/
 unsigned long sensor_timestamp;
 
-/* Starting sampling rate. */
-#define DEFAULT_MPU_HZ    (200)
+
 
 /****************************************
 * Gyro/Accel/DMP Configuration
@@ -303,11 +342,7 @@ void loop()
 
   // If the MPU Interrupt occurred, read the fifo and process the data
 
-#ifdef POLLMPU
-  if (true)    //new_gyro && hal.dmp_on)
-#else
-  if (new_gyro && dmp_on)
-#endif
+  if ((new_gyro && dmp_on)  || pollMPU)
   {
     short gyro[3], accel[3], sensors;
     unsigned char more = 0;
@@ -344,6 +379,13 @@ void loop()
       newX = newX   * 10430.06;
       newY = newY   * 10430.06;
       newZ = newZ   * 10430.06;
+
+//      if (outputMode == DBG)
+//      {
+//        Serial.println("-");
+//        Serial.print("newX ");
+//        Serial.println(newX);
+//      }
 
       if (!calibrated)
       {
@@ -389,6 +431,12 @@ void loop()
 
       // apply calibration offsets
       newX = newX - cx;
+      //
+      //            if (outputMode == DBG)
+      //      {
+      //      Serial.print("newX-cx ");
+      //Serial.println(newX);
+      //      }
 
       // this should take us back to zero BUT we may have wrapped so ..
       if (newX < -32768.0)
@@ -400,26 +448,37 @@ void loop()
       newY = newY - cy;
       newZ = newZ - cz;
 
+      //      if (outputMode == DBG)
+      //      {
+      //      Serial.print("newXwrapped  ");
+      //Serial.println(newX);
+      //      }
+
       //clamp at 90 degrees left and right
       newX = constrain(newX, -16383.0, 16383.0);
       newY = constrain(newY, -16383.0, 16383.0);
       newZ = constrain(newZ, -16383.0, 16383.0);
 
+      //            if (outputMode == DBG)
+      //      {
+      //            Serial.print("newX constrained  ");
+      //Serial.println(newX);
+      //      }
       long  iX ;
       long  iY ;
       long  iZ ;
 
       if (expScaleMode) {
-        iX = (0.000122076 * newX * newX * xExpScale) * (newX / abs(newX)); //side mount = yaw
-        iY = (0.000122076 * newY * newY * yExpScale) * (newY / abs(newY)); //side mount = pitch
-        iZ = (0.000122076 * newZ * newZ * zExpScale) * (newZ / abs(newZ)); //side mount = roll
+        iX = (0.000122076 * newX * newX * yawScale) * (newX / abs(newX));
+        iY = (0.000122076 * newY * newY * pitchScale) * (newY / abs(newY));
+        iZ = (0.000122076 * newZ * newZ * pitchScale) * (newZ / abs(newZ));
       }
       else
       {
         // and scale to out target range plus a 'sensitivity' factor;
-        iX = (newX * xScale );
-        iY = (newY * yScale );
-        iZ = (newZ * zScale );
+        iX = (newX * yawScale );
+        iY = (newY * pitchScale );
+        iZ = (newZ * pitchScale );
       }
 
       // clamp after scaling to keep values within 16 bit range
@@ -428,12 +487,20 @@ void loop()
       iZ = constrain(iZ, -32767, 32767);
 
       // Do it to it.
-      joySt.xAxis = iX ;
-      joySt.yAxis = iY;
-      joySt.zAxis = iZ;
+      if (!hush)
+      {
+        joySt.xAxis = iX ;
+        joySt.yAxis = iY;
+        joySt.zAxis = iZ;
+      }
+      else
+      {
+        joySt.xAxis = joySt.yAxis =  joySt.zAxis = 0;
+      }
 
       if (outputMode == UI)
       {
+        //Serial.print("#\t");
         Serial.print(iX ); // Yaw
         Serial.print("\t");
         Serial.print(iY); // Pitch
@@ -456,7 +523,7 @@ void loop()
       //  and pitch is levelish then start to count
       if (outputMode != UI )
       {
-        if (fabs(iX) < 3000.0 && fabs(iX - lX) < 5.0 && fabs(iY) < 600)
+        if (fabs(iX) < 3000.0 && fabs(iX - lX) < 5.0 && fabs(iY) < 800)
         {
           ticksInZone++;
           dzX += iX;
@@ -478,6 +545,8 @@ void loop()
           ticksInZone = 0;
           dzX = 0.0;
         }
+
+
       }
 
       parseInput();
@@ -485,8 +554,14 @@ void loop()
       // Apply X axis drift compensation every 1 second
       if (nowMillis > lastUpdate)
       {
+        //        Serial.println(reports);
+        //        reports=0;
+
         //depending on your mounting
         cx = cx + xDriftComp;
+
+        //        Serial.println(reports);
+        //        reports =0;
 
         if (cx > 65536.0)
           cx = cx - 65536.0;
@@ -547,12 +622,51 @@ void parseInput()
     // read the incoming byte:
     byte command = Serial.read();
 
+
+
+    if (command == 'e' || command == 'E' ||
+        command == 'f' || command == 'F' ||
+        command == 'c' || command == 'C' ||
+        command == 'd' || command == 'G')
+    {
+      if (command == 'c')
+        yawScale += 0.25;
+      if (command == 'C')
+        yawScale += 1.0;
+
+      if (command == 'd')
+        yawScale -= 0.25;
+      if (command == 'G')
+        yawScale -= 1.0;
+
+      if (command == 'e')
+        pitchScale += 0.25;
+      if (command == 'E')
+        pitchScale += 1.0;
+
+      if (command == 'f')
+        pitchScale -= 0.25;
+      if (command == 'F')
+        pitchScale -= 1.0;
+
+      setScales();
+      scl();
+
+    }
+
     if (command == 'S')
     {
       outputMode = OFF;
       Serial.println("S"); //silent
       dmp_set_fifo_rate(DEFAULT_MPU_HZ);
 
+    }
+    else if (command == '-')
+    {
+      if (outputMode != DBG)
+        outputMode = DBG;
+      else
+        outputMode = OFF;
     }
     else if (command == 'H')
     {
@@ -562,11 +676,9 @@ void parseInput()
     {
       //toggle linear/expoinential mode
       expScaleMode = !expScaleMode;
+      getScales();
       EEPROM.write(EE_EXPSCALEMODE, expScaleMode);
-      Serial.print("s\t");
-      Serial.print(expScaleMode);
-      Serial.print("\t");
-      Serial.println(scaleAdjust);
+      scl();
     }
     else if (command == 'V')
     {
@@ -574,10 +686,7 @@ void parseInput()
       Serial.print("I\t");
       Serial.println(infoString);
 
-      Serial.print("s\t");
-      Serial.print(expScaleMode);
-      Serial.print("\t");
-      Serial.println(scaleAdjust);
+      scl();
 
       outputMode = UI;
       if (DEFAULT_MPU_HZ > 101)
@@ -590,7 +699,8 @@ void parseInput()
       Serial.println(infoString);
 
       Serial.println("M\t----------------");
-      Serial.print("M\tOrientation ");
+
+      Serial.print("O\t");
       Serial.println(orientation);
 
       Serial.print("M\tDrift Comp");
@@ -606,19 +716,19 @@ void parseInput()
       Serial.print("M\tMPU Revision ");
       Serial.println(revision);
 
-      Serial.print("s\t");
-      Serial.print(expScaleMode);
-      Serial.print("\t");
-      Serial.println(scaleAdjust);
+      scl();
+      polling();
 
+      Serial.print("O\t");
+      Serial.println(orientation);
     }
     else if (command == 'P')
     {
       mpu_set_dmp_state(0);
-      orientation = (orientation + 1) % 4; //0 to 3
+      orientation = (orientation + 1) % 6; //0 to 5
       dmp_set_orientation(gyro_orients[orientation]);
       mpu_set_dmp_state(1);
-      Serial.print("M\tOrienation ");
+      Serial.print("O\t");
       Serial.println(orientation);
       EEPROM.write(EE_ORIENTATION, orientation);
     }
@@ -641,10 +751,14 @@ void parseInput()
       Serial.print("R\t");
       Serial.println(xDriftComp);
     }
-//    else if (command == 'F')
-//    {
-//      pushBias2DMP();
-//    }
+    else if (command == 's')
+    {
+      hush = !hush;
+    }
+    //    else if (command == 'F')
+    //    {
+    //      pushBias2DMP();
+    //    }
 
     while (Serial.available() > 0)
       command = Serial.read();
@@ -659,11 +773,10 @@ void parseInput()
 void gyro_data_ready_cb(void) {
   new_gyro = 1;
 }
-#ifndef POLLMPU
 ISR(INT6_vect) {
   new_gyro = 1;
 }
-#endif
+
 
 void tap_cb (unsigned char p1, unsigned char p2)
 {
@@ -731,16 +844,17 @@ void disable_mpu() {
   //hal.dmp_on = 0;
   dmp_on = 0;
 
-#ifndef POLLMPU
-  EIMSK &= ~(1 << INT6);      //deactivate interupt
-#endif
+  if (!pollMPU)
+    EIMSK &= ~(1 << INT6);      //deactivate interupt
+
 }
 
 void enable_mpu() {
-#ifndef POLLMPU
-  EICRB |= (1 << ISC60) | (1 << ISC61); // sets the interrupt type for EICRB (INT6)
-  EIMSK |= (1 << INT6); // activates the interrupt. 6 for 6, etc
-#endif
+  if (!pollMPU)
+  {
+    EICRB |= (1 << ISC60) | (1 << ISC61); // sets the interrupt type for EICRB (INT6)
+    EIMSK |= (1 << INT6); // activates the interrupt. 6 for 6, etc
+  }
 
   mpu_set_dmp_state(1);  // This enables the DMP; at this point, interrupts should commence
   dmp_on = 1;
@@ -772,34 +886,6 @@ void loadBiases() {
   return ;
 }
 
-
-//void pushBias2DMP()
-//{
-//  //Serial.println("M\t Push Bias to DMP Regs.");
-//
-//  if (outputMode == UI)
-//  {
-//    Serial.println("M\tPush Bias to DMP");
-//  }
-//
-//  mpu_set_accel_bias_6050_reg(fBias, 0);
-//
-//  unsigned short accel_sens;
-//
-//  mpu_get_accel_sens(&accel_sens);
-//
-//  //
-//  //    Serial.print("M\t Accel Sens ");
-//  //    Serial.println(accel_sens);
-//  //
-//  long a[3];
-//
-//  for (int i = 0; i < 3; i++)
-//    a[i] = (aBias[i] * (long)accel_sens); //<<6;
-//
-//  dmp_set_accel_bias(a);
-//
-//}
 
 
 void blink()
@@ -833,4 +919,66 @@ void mess(char *m, long*v)
   Serial.print(v[0]); Serial.print(" / ");
   Serial.print(v[1]); Serial.print(" / ");
   Serial.println(v[2]);
+}
+
+
+
+void getScales()
+{
+  if (expScaleMode)
+  {
+    yawScale = (float)EEPROM.read(EE_YAWEXPSCALE) / 4.0;
+    pitchScale = (float)EEPROM.read(EE_PITCHEXPSCALE) / 4.0;
+
+    if (yawScale == 0 || yawScale > 60)
+      yawScale = 14.0;
+
+    if (pitchScale == 0 || pitchScale >60)
+      pitchScale = 14.0;
+  }
+  else
+  {
+    yawScale = (float)EEPROM.read(EE_YAWSCALE) / 4.0;
+    pitchScale = (float)EEPROM.read(EE_PITCHSCALE) / 4.0;
+
+    if (yawScale == 0 || yawScale > 60)
+      yawScale = 5.0;
+
+    if (pitchScale == 0 || pitchScale > 60)
+      pitchScale = 5.0;
+  }
+}
+
+
+void setScales()
+{
+  if (expScaleMode)
+  {
+    EEPROM.write(EE_YAWEXPSCALE, (int)(yawScale * 4));
+    EEPROM.write(EE_PITCHEXPSCALE, (int)(pitchScale * 4));
+  }
+  else
+  {
+    EEPROM.write(EE_YAWSCALE, (int)(yawScale * 4));
+    EEPROM.write(EE_PITCHSCALE, (int)(pitchScale * 4));
+  }
+}
+
+
+void 
+polling()    // Read only in main sketch
+{
+  Serial.print("p\t");
+  Serial.println(pollMPU);
+}
+
+void
+scl()
+{
+  Serial.print("s\t");
+  Serial.print(expScaleMode);
+  Serial.print("\t");
+  Serial.print(yawScale);
+  Serial.print("\t");
+  Serial.println(pitchScale);
 }

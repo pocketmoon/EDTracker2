@@ -2,7 +2,7 @@
 //  Head Tracker Sketch
 //
 
-const char* PROGMEM infoString = "ED Tracker Calibration V2.4";
+const char* PROGMEM infoString = "ED Tracker Calibration V2.5.1";
 
 //
 // Changelog:
@@ -12,6 +12,9 @@ const char* PROGMEM infoString = "ED Tracker Calibration V2.4";
 // 2014-06-10 Add temps. Allow individial biasing of accel axis
 // 2014-06-15 Add option to clear bias to factory defaults
 // 2014-06-22 Fix LED blinking
+// 2014-08-01 many many things
+// 2014-08-03 Wipe all memory values during WIPE
+// 2014-08-04 Add ability to toggle MPU Polling on/off
 
 /* ============================================
 EDTracker device code is placed under the MIT License
@@ -37,7 +40,7 @@ THE SOFTWARE.
 ===============================================
 */
 
-#define POLLMPUx
+#define POLLMPU
 
 #define EMPL_TARGET_ATMEGA328
 
@@ -93,6 +96,10 @@ long gBias[3], aBias[3], fBias[3];
 // 2 bytes
 #define EE_XDRIFTCOMP 26
 
+#define EE_POLLMPU 33
+
+boolean pollMPU=false;
+
 //Need some helper funct to read/write integers
 void writeIntEE(int address, int value ) {
   EEPROM.write(address + 1, value >> 8); //upper byte
@@ -126,9 +133,9 @@ void setup() {
   // join I2C bus (I2Cdev library doesn't do this automatically)
   Wire.begin();
   //
-  //  // Disable internal I2C pull-ups
-  //  cbi(PORTC, 4);
-  //  cbi(PORTC, 5);
+//  // Disable internal I2C pull-ups
+  cbi(PORTC, 4);
+ cbi(PORTC, 5);
 
   // Gyro sensitivity:      2000 degrees/sec
   // Accel sensitivity:     2g
@@ -146,6 +153,15 @@ void setup() {
   delay(100);
   //mpu_get_biases
   //  enable_mpu();
+  
+  pollMPU = EEPROM.read(EE_POLLMPU);  
+  // by default  
+  if (pollMPU >1)
+  {
+    pollMPU = 1;
+    EEPROM.write(EE_POLLMPU,pollMPU); 
+  }
+  
 }
 
 /***************************************
@@ -181,7 +197,7 @@ void loop()
   {
     tick = millis() + 200;
     digitalWrite(LED_PIN, blinkState);
-    blinkState=!blinkState;
+    blinkState = !blinkState;
   }
 
   // libs chopped so timestamp not returned
@@ -205,6 +221,7 @@ void loop()
 
   if (outputMode)
   {
+    // Serial.print("#\t");
     Serial.print(newX , 5 ); // Yaw
     Serial.print("\t");
     Serial.print(newY, 5 ); // Pitch
@@ -257,6 +274,46 @@ void parseInput()
       outputMode = false;
       Serial.println("S"); //silent
     }
+    /*************************************/
+    else if (command == 'j' || command == 'J' ||
+             command == 'K' || command == 'k' ||
+             command == 'l' || command == 'L' ||
+             command == 'M' || command == 'm' ||
+             command == 'N' || command == 'n' ||
+             command == 'O' || command == 'o')
+    {
+      if (command == 'J')
+        aBias[0]++;
+      else if (command == 'j')
+        aBias[0]--;
+      else if (command == 'K')
+        aBias[1]++;
+      else if (command == 'k')
+        aBias[1]--;
+      else if (command == 'L')
+        aBias[2]++;
+      else if (command == 'l')
+        aBias[2]--;
+      else if (command == 'M')
+        gBias[0]++;
+      else if (command == 'm')
+        gBias[0]--;
+      else if (command == 'N')
+        gBias[1]++;
+      else if (command == 'n')
+        gBias[1]--;
+      else if (command == 'O')
+        gBias[2]++;
+      else if (command == 'o')
+        gBias[2]--;
+
+      biasInfo();
+
+      saveBias();
+      loadBiases();
+    }
+
+    /*************************************/
     else if (command == 'x')
     {
       adjustAccel = 1;
@@ -279,9 +336,19 @@ void parseInput()
     }
     else if (command == '0')
     {
-      for (int i = 0; i < 3; i++)
-        gBias[i] = aBias[i] = 0;
-      saveBias();
+//      for (int i = 0; i < 3; i++)
+//        gBias[i] = aBias[i] = 0;
+//        
+//      saveBias();
+      
+      for (int i = 0; i <255; i++)
+       EEPROM.write(i, 0);   
+       
+      pollMPU=0;
+      loadBiases();
+      biasInfo();
+      polling();
+      
     }
     else if (command == 'V')
     {
@@ -294,15 +361,20 @@ void parseInput()
     {
       Serial.println("H"); // Hello
     }
+     else if (command == 'p')
+    {
+      pollMPU=!pollMPU;
+      EEPROM.write(EE_POLLMPU, pollMPU);
+      polling();
+    }
     else if (command == 'I')
     {
       Serial.print("I\t");
       Serial.println(infoString);
       loadBiases();
-      mess("M\tGyro Bias ", gBias);
-      mess("M\tAccel Bias ", aBias);
+      biasInfo();
       mess("M\tFact Bias ", fBias);
-
+      polling();
       Serial.print("M\tMPU Revision ");
       Serial.println(revision);
     }
@@ -310,11 +382,7 @@ void parseInput()
     {
       update_bias();
     }
-    else if (command == 'F')
-    {
-      //flip where bias values are stored
-      flipBias();
-    }
+
 
     while (Serial.available() > 0)
       command = Serial.read();
@@ -448,12 +516,23 @@ void update_bias()
     delay(17);
   }
 
-  mess("M\tGyro Bias ", gBias);
-  mess("M\tAccel Bias ", aBias);
+  biasInfo();
 
   saveBias();
   loadBiases();
   return;
+}
+
+
+void biasInfo()
+{
+  mess("M\tGyro Bias ", gBias);
+  mess("M\tAccel Bias ", aBias);
+
+  Serial.print("B\t");
+  tripple(gBias);
+  tripple(aBias);
+  Serial.println("");
 }
 
 void saveBias()
@@ -466,6 +545,15 @@ void saveBias()
 }
 
 void tripple(short *v)
+{
+  for (int i = 0; i < 3; i++)
+  {
+    Serial.print(v[i] ); //
+    Serial.print("\t");
+  }
+}
+
+void tripple(long *v)
 {
   for (int i = 0; i < 3; i++)
   {
@@ -499,43 +587,13 @@ void loadBiases() {
 }
 
 
-void flipBias()
+
+void 
+polling()    // Read only in main sketch
 {
-  long zeros[3] = {0, 0, 0};
-  Serial.println("M\t Push Bias to DMP Regs.");
-  // mpu_set_accel_bias_6050_reg(fBias,0);
-
-  delay (100);
-  mpu_set_gyro_bias_reg(zeros);
-
-
-  unsigned short sens;
-
-  mpu_get_accel_sens(&sens);
-  Serial.print("M\t Accel Sens ");
-  Serial.println(sens);
-
-  long a[3];
-
-  for (int i = 0; i < 3; i++)
-    a[i] = (aBias[i] * (long)sens) / (long)4096; //+/- 8g to q16i
-
-  //dmp_set_accel_bias(a);
-
-  float fsens;
-
-  mpu_get_gyro_sens(&fsens);
-  Serial.print("M\t Gyro Sens ");
-  Serial.println(fsens);
-
-  for (int i = 0; i < 3; i++)
-  {
-    a[i] = (long)(gBias[i] * 32767); // in +/- 1000dps con to phys Q16
-
-    Serial.print("M\t UGH ");
-    Serial.println(a[i]);
-  }
-  dmp_set_gyro_bias(a);
+  Serial.print("p\t");
+  Serial.println(pollMPU);
 }
+
 
 
