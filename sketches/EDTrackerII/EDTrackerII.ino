@@ -245,7 +245,7 @@ void setup() {
   digitalWrite(SDA_PIN, HIGH);
   digitalWrite(SDA_PIN, LOW);
 
-  orientation = constrain(EEPROM.read(EE_ORIENTATION), 0, 3);
+  orientation = constrain(EEPROM.read(EE_ORIENTATION), 0, 5);
 
   expScaleMode = EEPROM.read(EE_EXPSCALEMODE);
   getScales();
