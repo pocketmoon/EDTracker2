@@ -7,7 +7,7 @@
 //  Head Tracker Sketch
 //
 
-const char* PROGMEM infoString = "EDTrackerII V2.20.3";
+const char* PROGMEM infoString = "EDTrackerII V2.20.4";
 
 //
 // Changelog:
@@ -29,6 +29,7 @@ const char* PROGMEM infoString = "EDTrackerII V2.20.3";
 // 2014-08-01 Add UI adjustable scaling. Arduino 157 compatible
 // 2014-08/03 Fix clash of 'save drift' and 'decrement yaw scale
 // 2014-08/04 Config based Poll MPU or interrupts 
+// 2014-09-04 Upversion to reflect fix to orientation
 
 /* ============================================
 EDTracker device code is placed under the MIT License
