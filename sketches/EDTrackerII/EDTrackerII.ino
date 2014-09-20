@@ -7,7 +7,7 @@
 //  Head Tracker Sketch
 //
 
-const char* PROGMEM infoString = "EDTrackerII V2.20.4";
+const char* PROGMEM infoString = "EDTrackerII V2.20.5";
 
 //
 // Changelog:
@@ -30,6 +30,7 @@ const char* PROGMEM infoString = "EDTrackerII V2.20.4";
 // 2014-08/03 Fix clash of 'save drift' and 'decrement yaw scale
 // 2014-08/04 Config based Poll MPU or interrupts 
 // 2014-09-04 Upversion to reflect fix to orientation
+// 2014-09-18 Apply auto-centre logic before scaling (behaves better with opentrack)
 
 /* ============================================
 EDTracker device code is placed under the MIT License
@@ -488,16 +489,16 @@ void loop()
       iZ = constrain(iZ, -32767, 32767);
 
       // Do it to it.
-      if (!hush)
+      //if (!hush)
       {
         joySt.xAxis = iX ;
         joySt.yAxis = iY;
         joySt.zAxis = iZ;
       }
-      else
-      {
-        joySt.xAxis = joySt.yAxis =  joySt.zAxis = 0;
-      }
+//      else
+//      {
+//        joySt.xAxis = joySt.yAxis =  joySt.zAxis = 0;
+//      }
 
       if (outputMode == UI)
       {
@@ -522,9 +523,10 @@ void loop()
       // if we're looking ahead, give or take
       //  and not moving
       //  and pitch is levelish then start to count
-      if (outputMode != UI )
+      if (outputMode != UI)
       {
-        if (fabs(iX) < 3000.0 && fabs(iX - lX) < 5.0 && fabs(iY) < 800)
+        //if (fabs(iX) < 3000.0 && fabs(iX - lX) < 5.0 && fabs(iY) < 800)
+        if (fabs(newX) < 500.0 && fabs(newX - lX) < 0.5 && fabs(iY) < 800)
         {
           ticksInZone++;
           dzX += iX;
@@ -534,7 +536,8 @@ void loop()
           ticksInZone = 0;
           dzX = 0.0;
         }
-        lX = iX;
+        //lX = iX;
+        lX = newX;
 
         // if we stayed looking ahead-ish long enough then adjust yaw offset
         if (ticksInZone >= 10)
@@ -546,8 +549,6 @@ void loop()
           ticksInZone = 0;
           dzX = 0.0;
         }
-
-
       }
 
       parseInput();
