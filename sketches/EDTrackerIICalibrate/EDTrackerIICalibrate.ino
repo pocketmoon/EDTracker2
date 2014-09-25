@@ -2,7 +2,7 @@
 //  Head Tracker Sketch
 //
 
-const char* PROGMEM infoString = "ED Tracker Calibration V2.5.1";
+const char* PROGMEM infoString = "ED Tracker Calibration V2.5.2";
 
 //
 // Changelog:
@@ -15,6 +15,7 @@ const char* PROGMEM infoString = "ED Tracker Calibration V2.5.1";
 // 2014-08-01 many many things
 // 2014-08-03 Wipe all memory values during WIPE
 // 2014-08-04 Add ability to toggle MPU Polling on/off
+// 2014-09-24 Update for calibration - zone in quicker
 
 /* ============================================
 EDTracker device code is placed under the MIT License
@@ -40,7 +41,7 @@ THE SOFTWARE.
 ===============================================
 */
 
-#define POLLMPU
+//#define POLLMPU
 
 #define EMPL_TARGET_ATMEGA328
 
@@ -98,7 +99,7 @@ long gBias[3], aBias[3], fBias[3];
 
 #define EE_POLLMPU 33
 
-boolean pollMPU=false;
+boolean pollMPU = false;
 
 //Need some helper funct to read/write integers
 void writeIntEE(int address, int value ) {
@@ -133,9 +134,9 @@ void setup() {
   // join I2C bus (I2Cdev library doesn't do this automatically)
   Wire.begin();
   //
-//  // Disable internal I2C pull-ups
+  //  // Disable internal I2C pull-ups
   cbi(PORTC, 4);
- cbi(PORTC, 5);
+  cbi(PORTC, 5);
 
   // Gyro sensitivity:      2000 degrees/sec
   // Accel sensitivity:     2g
@@ -153,15 +154,15 @@ void setup() {
   delay(100);
   //mpu_get_biases
   //  enable_mpu();
-  
-  pollMPU = EEPROM.read(EE_POLLMPU);  
-  // by default  
-  if (pollMPU >1)
+
+  pollMPU = EEPROM.read(EE_POLLMPU);
+  // by default
+  if (pollMPU > 1)
   {
     pollMPU = 1;
-    EEPROM.write(EE_POLLMPU,pollMPU); 
+    EEPROM.write(EE_POLLMPU, pollMPU);
   }
-  
+
 }
 
 /***************************************
@@ -235,7 +236,7 @@ void loop()
 
     if (millis() > tick2)
     {
-      tick2 = millis() + 2000;
+      tick2 = millis() + 1000;
       long t;
       mpu_get_temperature (&t, 0);
       Serial.print("T\t");
@@ -336,19 +337,19 @@ void parseInput()
     }
     else if (command == '0')
     {
-//      for (int i = 0; i < 3; i++)
-//        gBias[i] = aBias[i] = 0;
-//        
-//      saveBias();
-      
-      for (int i = 0; i <255; i++)
-       EEPROM.write(i, 0);   
-       
-      pollMPU=0;
+      //      for (int i = 0; i < 3; i++)
+      //        gBias[i] = aBias[i] = 0;
+      //
+      //      saveBias();
+
+      for (int i = 0; i < 255; i++)
+        EEPROM.write(i, 0);
+
+      pollMPU = 0;
       loadBiases();
       biasInfo();
       polling();
-      
+
     }
     else if (command == 'V')
     {
@@ -361,9 +362,9 @@ void parseInput()
     {
       Serial.println("H"); // Hello
     }
-     else if (command == 'p')
+    else if (command == 'p')
     {
-      pollMPU=!pollMPU;
+      pollMPU = !pollMPU;
       EEPROM.write(EE_POLLMPU, pollMPU);
       polling();
     }
@@ -443,7 +444,7 @@ void  initialize_mpu() {
 // Gives better, near zero, biased raw values which hopefully
 // gives better DMP results.
 
-void update_bias()
+void update_bias_old()
 {
   long gyrozero[3];
   int samples = 100;
@@ -588,7 +589,7 @@ void loadBiases() {
 
 
 
-void 
+void
 polling()    // Read only in main sketch
 {
   Serial.print("p\t");
@@ -597,3 +598,101 @@ polling()    // Read only in main sketch
 
 
 
+
+
+
+
+void update_bias()
+{
+  long gyrozero[3];
+  int samples = 5;
+  unsigned short i;
+
+  //mpu_read_6050_accel_bias(aBias);
+  //mpu_read_gyro_bias(gBias);
+
+  for (i = 0; i < 3; i++)
+  {
+    gyrozero[i] = 0;
+  }
+
+  Serial.println("M\t Sampling..");
+
+  // set gyro to zero and accel to factory bias
+  mpu_set_gyro_bias_reg(gyrozero);
+  mpu_set_accel_bias_6050_reg(fBias, 0);
+
+  delay(1000);
+
+  int adj = 16;
+  int gyr = 18;
+
+  for (int o = 0; o < 10; o++)
+  {
+    for (int s = 0; s < samples; s++)
+    {
+      //physical values in Q16.16 format
+      //mpu_get_biases(gBias, aBias);
+
+      dmp_read_fifo(gyro, accel, quat, &sensor_timestamp, &sensors, &more);
+
+      if (abs(accel[0]) < 10  &&  abs(accel[1]) < 10 && abs(accel[2]) < 10)
+        adj = 1;
+
+        if (abs(gyro[0]) < 10  &&  abs(gyro[1]) < 10 && abs(gyro[2]) < 10)
+          gyr = 1;
+
+         delay(10);
+
+          if (adjustAccel == 0  || adjustAccel == 1)
+        {
+          if (accel[0] >= 1) aBias[0] += adj;
+            else if (accel[0] <= -1) aBias[0] -= adj;
+          }
+
+      if (adjustAccel == 0  || adjustAccel == 2)
+    {
+      if (accel[1] >= 1) aBias[1] += adj;
+        else if (accel[1] <= -1) aBias[1] -= adj;
+      }
+
+      if (adjustAccel == 0  || adjustAccel == 3)
+    {
+      if (accel[2] > 16384) aBias[2] += adj;
+        else if (accel[2] < 16384) aBias[2] -= adj;
+      }
+
+      if (adjustAccel == 0)
+    {
+      if (gyro[0] > 1) gBias[0] = gBias[0] - gyr;
+        else if (gyro[0] < -1) gBias[0] = gBias[0] + gyr;
+
+        if (gyro[1] > 1) gBias[1] -= gyr;
+        else if (gyro[1] < -1) gBias[1] += gyr;
+
+        if (gyro[2] > 1) gBias[2] -= gyr;
+        else if (gyro[2] < -1) gBias[2] += gyr;
+      }
+
+    }
+
+    if (adj > 1)
+      adj = adj / 2;
+    if (gyr > 1)
+      gyr = gyr / 2;
+
+    //push the  factory bias back
+    mpu_set_accel_bias_6050_reg(fBias, 0);
+    mpu_set_gyro_bias_reg(gBias);
+    mpu_set_accel_bias_6050_reg(aBias, 1);
+    delay(800);
+  }
+
+  mess("M\tGyro Bias ", gBias);
+  mess("M\tAccell Bias ", aBias);
+  biasInfo();
+
+  saveBias();
+  loadBiases();
+  return;
+}

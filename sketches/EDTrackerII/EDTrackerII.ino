@@ -7,7 +7,7 @@
 //  Head Tracker Sketch
 //
 
-const char* PROGMEM infoString = "EDTrackerII V2.20.5";
+const char* PROGMEM infoString = "EDTrackerII V2.20.6";
 
 //
 // Changelog:
@@ -128,6 +128,7 @@ float xDriftComp = 0.0;
 #define EE_PITCHEXPSCALE 32
 
 #define EE_POLLMPU 33
+#define EE_AUTOCENTRE 34
 
 
 
@@ -173,7 +174,7 @@ boolean calibrated = false;
 // no longer needed
 //Allows the MPU6050 to settle for 10 seconds.
 //There should be no drift after this time
-unsigned short  calibrateTime     = 1000;
+//unsigned short  calibrateTime     = 1000;
 
 //Number of samples to take when recalibrating
 byte  recalibrateSamples =  200;
@@ -181,7 +182,7 @@ byte  recalibrateSamples =  200;
 // Holds the time since sketch stared
 unsigned long  nowMillis;
 boolean blinkState;
-boolean hush = false;
+boolean autocentre = true;
 
 TrackState_t joySt;
 
@@ -229,7 +230,7 @@ long readLongEE(int address) {
 void setup() {
 
   Serial.begin(115200);
-  delay(500);
+  //delay(500);
 
 #ifdef DEBUG
   outputMode = UI;
@@ -253,16 +254,16 @@ void setup() {
   getScales();
   
   pollMPU = EEPROM.read(EE_POLLMPU);
+  autocentre = EEPROM.read(EE_AUTOCENTRE);
 
   // by default  
-  if (pollMPU >1)
-  {
-    pollMPU = 1;
-    EEPROM.write(EE_POLLMPU,pollMPU); 
-  }
-
-
-
+//  if (pollMPU >1)
+//  {
+//    pollMPU = 1;
+//    autocentre = 1;
+//    EEPROM.write(EE_POLLMPU,pollMPU); 
+//    EEPROM.write(EE_AUTORECENTRE,autocentre); 
+//  }
 
   xDriftComp = (float)readIntEE(EE_XDRIFTCOMP) / 256.0;
 
@@ -288,7 +289,7 @@ void setup() {
   // Gyro Low-pass filter:  42Hz
   // DMP Update rate:       100Hz
 
-  DEBUG_PRINTLN("M\tInit MPU...");
+  DEBUG_PRINTLN("M\tInit MPU.");
 
   if ( initialize_mpu() ) {
     delay(100);
@@ -300,7 +301,7 @@ void setup() {
 
   }
   else {
-    DEBUG_PRINTLN("M\tInit Failed");
+    DEBUG_PRINTLN("M\tInit Fail");
     while (1);
   }
 
@@ -327,10 +328,9 @@ void recenter()
 {
   if (outputMode == UI)
   {
-    Serial.println("M\tRecentering");
+    Serial.println("M\tR");
   }
-  sampleCount = 0;
-  cx = cy = cz = 0;
+  sampleCount = cx = cy = cz = 0;
   calibrated = false;
 }
 //unsigned char accel_fsr;  // accelerometer full-scale rate, in +/- Gs (possible values are 2, 4, 8 or 16).  Default:  2
@@ -339,7 +339,6 @@ void recenter()
 boolean new_gyro , dmp_on;
 void loop()
 {
-  blink();
   nowMillis = millis();
 
   // If the MPU Interrupt occurred, read the fifo and process the data
@@ -372,10 +371,10 @@ void loop()
       float newX = -atan2(2.0 * (q.x * q.y + q.w * q.z), q.w * q.w + q.x * q.x - q.y * q.y - q.z * q.z);
 
       // if we're still in the initial 'settling' period do nothing else...
-      if (nowMillis < calibrateTime)
-      {
-        return;
-      }
+//      if (nowMillis < calibrateTime)
+//      {
+//        return;
+//      }
 
       // scale to range -32767 to 32767
       newX = newX   * 10430.06;
@@ -407,12 +406,12 @@ void loop()
 
           dX = dY = dZ = 0.0;
           driftSamples = -2;
-          recalibrateSamples = 100;// reduce calibrate next time around
+          recalibrateSamples = 10;// reduce calibrate next time around
           if (outputMode == UI)
           {
             Serial.print("I\t");
             Serial.println(infoString);
-            Serial.println("M\tRecentered");
+           // Serial.println("M\tRec'd");
           }
           //pushBias2DMP();
         }
@@ -433,12 +432,6 @@ void loop()
 
       // apply calibration offsets
       newX = newX - cx;
-      //
-      //            if (outputMode == DBG)
-      //      {
-      //      Serial.print("newX-cx ");
-      //Serial.println(newX);
-      //      }
 
       // this should take us back to zero BUT we may have wrapped so ..
       if (newX < -32768.0)
@@ -523,13 +516,14 @@ void loop()
       // if we're looking ahead, give or take
       //  and not moving
       //  and pitch is levelish then start to count
-      if (outputMode != UI)
+      if (autocentre && outputMode != UI)/**/
       {
         //if (fabs(iX) < 3000.0 && fabs(iX - lX) < 5.0 && fabs(iY) < 800)
-        if (fabs(newX) < 500.0 && fabs(newX - lX) < 0.5 && fabs(iY) < 800)
+        if (fabs(newX) < 300.0 && fabs(newX - lX) < 1.4 && fabs(iY) < 1000)
         {
           ticksInZone++;
           dzX += iX;
+          //Serial.println("M\tZ");
         }
         else
         {
@@ -542,10 +536,13 @@ void loop()
         // if we stayed looking ahead-ish long enough then adjust yaw offset
         if (ticksInZone >= 10)
         {
+          //Serial.println("M\tZ");
+          //Serial.println( fabs(newX - lX));
+
           // NB this currently causes a small but visible jump in the
           // view. Useful for debugging!
-          dzX = dzX * 0.1;
-          cx += dzX * 0.1;
+//          dzX = dzX * 0.01;
+          cx += dzX * 0.01;
           ticksInZone = 0;
           dzX = 0.0;
         }
@@ -556,6 +553,7 @@ void loop()
       // Apply X axis drift compensation every 1 second
       if (nowMillis > lastUpdate)
       {
+        blink();
         //        Serial.println(reports);
         //        reports=0;
 
@@ -589,13 +587,13 @@ void loop()
         DEBUG_PRINT(newZ );
         DEBUG_PRINT("\t\t");
 
-        DEBUG_PRINTLN(dX / (float)driftSamples  );
+        DEBUG_PRINTLN(dX / (float)driftSamples);
         if (outputMode == UI)
         {
           Serial.print("D\t");
-          Serial.print(dX / (float)driftSamples);
+          Serial.print(dX / (float)driftSamples,5);
           Serial.print("\t");
-          Serial.println(xDriftComp);
+          Serial.println(xDriftComp,5);
 
           //          Serial.print("M\t Updates per second ");
           //          Serial.println(reports);
@@ -626,36 +624,68 @@ void parseInput()
 
 
 
-    if (command == 'e' || command == 'E' ||
-        command == 'f' || command == 'F' ||
-        command == 'c' || command == 'C' ||
-        command == 'd' || command == 'G')
-    {
+//    if (command == 'e' || command == 'E' ||
+//        command == 'f' || command == 'F' ||
+//        command == 'c' || command == 'C' ||
+//        command == 'd' || command == 'G')
+//if (
+//(command >= 'c' && command <= 'f') || 
+//(command >= 'E' && command <= 'G') ||
+//command == 'C')
+  //      {
+    
+    bool scale = false;
       if (command == 'c')
+      {
         yawScale += 0.25;
+        scale=true;
+      }
       if (command == 'C')
+      {
         yawScale += 1.0;
+        scale=true;
+      }
 
       if (command == 'd')
+      {
         yawScale -= 0.25;
+        scale=true;
+      }
       if (command == 'G')
+      {
         yawScale -= 1.0;
+        scale=true;
+      }
 
       if (command == 'e')
+      {
         pitchScale += 0.25;
+        scale=true;
+      }
       if (command == 'E')
+      {
         pitchScale += 1.0;
+        scale=true;
+      }
 
       if (command == 'f')
+      {
         pitchScale -= 0.25;
+        scale=true;
+      }
       if (command == 'F')
+      {
         pitchScale -= 1.0;
-
+        scale=true;
+      }
+if (scale)
+{
       setScales();
       scl();
+}
 
-    }
-
+//    }
+//else
     if (command == 'S')
     {
       outputMode = OFF;
@@ -719,10 +749,14 @@ void parseInput()
       Serial.println(revision);
 
       scl();
-      polling();
+      //polling();
+      sendBool('p',pollMPU);
 
       Serial.print("O\t");
       Serial.println(orientation);
+      
+      sendBool('#',autocentre);
+
     }
     else if (command == 'P')
     {
@@ -753,9 +787,22 @@ void parseInput()
       Serial.print("R\t");
       Serial.println(xDriftComp);
     }
-    else if (command == 's')
+    else if (command == '#')
     {
-      hush = !hush;
+      autocentre= !autocentre;
+      EEPROM.write(EE_AUTOCENTRE, autocentre);
+      //autocentring();
+      sendBool('#',autocentre);
+    }
+     else if (command == 'a')
+    {
+      xDriftComp=xDriftComp-0.01;
+writeIntEE(EE_XDRIFTCOMP, (int)(xDriftComp * 256.0));      
+    }
+       else if (command == 'A')
+    {
+      xDriftComp=xDriftComp+0.01;
+writeIntEE(EE_XDRIFTCOMP, (int)(xDriftComp * 256.0));      
     }
     //    else if (command == 'F')
     //    {
@@ -892,16 +939,16 @@ void loadBiases() {
 
 void blink()
 {
-  unsigned short delta = 100;
+//  unsigned short delta = 100;
+//
+//  if (calibrated)
+//    delta = 300;
 
-  if (calibrated)
-    delta = 300;
-
-  if (nowMillis > lastMillis + delta)
+  if (nowMillis > lastMillis )
   {
     blinkState = !blinkState;
     digitalWrite(LED_PIN, blinkState);
-    lastMillis = nowMillis;
+    lastMillis = nowMillis+500;
   }
 }
 
@@ -966,12 +1013,26 @@ void setScales()
   }
 }
 
-
+/*
 void 
 polling()    // Read only in main sketch
 {
   Serial.print("p\t");
   Serial.println(pollMPU);
+}
+
+void 
+autocentring()  
+{
+     Serial.print("#\t");
+     Serial.println(autocentre);
+}
+*/
+void sendBool(char x,boolean v)
+{
+    Serial.print(x);
+  Serial.print("\t");
+       Serial.println(v);
 }
 
 void
