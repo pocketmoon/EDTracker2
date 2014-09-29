@@ -2062,7 +2062,7 @@ static int get_st_biases_test(long *gyro, long *accel, unsigned char hw_test)
     if (i2c_write(st.hw->addr, st.reg->gyro_cfg, 1, data))
         return -1;
 
-    if (hw_test)
+    if (hw_test)ma
         data[0] = st.test->reg_accel_fsr | 0xE0;
     else
         data[0] = test.reg_accel_fsr;
@@ -3076,28 +3076,24 @@ void  mpu_set_accel_bias_6050_reg(const long *accel_bias, unsigned char relative
     //unsigned char data[6] = {0, 0, 0, 0, 0, 0};
 	unsigned char data[2] = {0, 0, 0, 0, 0, 0};
     long accel_reg_bias[3] = {0, 0, 0};
-    long mask = 0x0001;
-    unsigned char mask_bit[3] = {0, 0, 0};
+    //long mask = 0x0001;
+    //unsigned char mask_bit[3] = {0, 0, 0};
     unsigned char i ;
 	
     mpu_read_6050_accel_bias(accel_reg_bias);
 
     //bit 0 of the 2 byte bias is for temp comp
     //calculations need to compensate for this and not change it
-    for(i=0; i<3; i++) 
-	{
-		if(accel_reg_bias[i]&mask)
-    		mask_bit[i] = 0x01;
-			
-		if (relative==1)
-			accel_reg_bias[i] -= accel_bias[i];
-		else // just dump the value in
-			accel_reg_bias[i] = accel_bias[i];
+     for(i=0; i<3; i++) 
+     {
+	if (relative==1)
+		accel_reg_bias[i] -= (accel_bias[i] & ~1);
+	else // just dump the value in
+		accel_reg_bias[i] = accel_bias[i];
 
-		data[0] = (accel_reg_bias[i] >> 8) & 0xff;
-		data[1] = (accel_reg_bias[i]) & 0xff;
-		data[1] = data[1]|mask_bit[i];
-		i2c_write(st.hw->addr, 0x06+i*2, 2, &data[0]);		
+	data[0] = (accel_reg_bias[i] >> 8) & 0xff;
+	data[1] = (accel_reg_bias[i]) & 0xff; // WAS FF ??
+	i2c_write(st.hw->addr, 0x06+i*2, 2, &data[0]);		
     }
 
 	/*
