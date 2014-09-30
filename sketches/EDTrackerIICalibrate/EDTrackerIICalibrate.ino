@@ -2,7 +2,7 @@
 //  Head Tracker Sketch
 //
 
-const char* PROGMEM infoString = "ED Tracker Calibration V2.5.2";
+const char* PROGMEM infoString = "ED Tracker Calibration V2.5.3";
 
 //
 // Changelog:
@@ -16,6 +16,7 @@ const char* PROGMEM infoString = "ED Tracker Calibration V2.5.2";
 // 2014-08-03 Wipe all memory values during WIPE
 // 2014-08-04 Add ability to toggle MPU Polling on/off
 // 2014-09-24 Update for calibration - zone in quicker
+// 2014-09-29 Fixed temperature reporting
 
 /* ============================================
 EDTracker device code is placed under the MIT License

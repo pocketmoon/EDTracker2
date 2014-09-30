@@ -7,7 +7,7 @@
 //  Head Tracker Sketch
 //
 
-const char* PROGMEM infoString = "EDTrackerII V2.20.6";
+const char* PROGMEM infoString = "EDTrackerII V2.20.7";
 
 //
 // Changelog:
@@ -28,9 +28,11 @@ const char* PROGMEM infoString = "EDTrackerII V2.20.6";
 // 2014-07-01 Add 'side mount' orientation numbers. Raise sping-back window
 // 2014-08-01 Add UI adjustable scaling. Arduino 157 compatible
 // 2014-08/03 Fix clash of 'save drift' and 'decrement yaw scale
-// 2014-08/04 Config based Poll MPU or interrupts 
+// 2014-08/04 Config based Poll MPU or interrupts
 // 2014-09-04 Upversion to reflect fix to orientation
 // 2014-09-18 Apply auto-centre logic before scaling (behaves better with opentrack)
+// 2014-09-29 Correct autocentre behaviour for exp  vs linear response. 
+//            Add 4 options for auto centering
 
 /* ============================================
 EDTracker device code is placed under the MIT License
@@ -71,7 +73,7 @@ THE SOFTWARE.
 float dzX = 0.0;
 float lX = 0.0;
 unsigned int ticksInZone = 0;
-unsigned int reports = 0;
+//unsigned int reports = 0;
 
 boolean pollMPU = false;
 
@@ -127,6 +129,7 @@ float xDriftComp = 0.0;
 #define EE_YAWEXPSCALE 31
 #define EE_PITCHEXPSCALE 32
 
+//single bytes
 #define EE_POLLMPU 33
 #define EE_AUTOCENTRE 34
 
@@ -182,7 +185,10 @@ byte  recalibrateSamples =  200;
 // Holds the time since sketch stared
 unsigned long  nowMillis;
 boolean blinkState;
-boolean autocentre = true;
+byte autocentre = 1;
+
+bool supresscentring = false;
+//float aTemp=0.0;
 
 TrackState_t joySt;
 
@@ -252,18 +258,18 @@ void setup() {
 
   expScaleMode = EEPROM.read(EE_EXPSCALEMODE);
   getScales();
-  
+
   pollMPU = EEPROM.read(EE_POLLMPU);
   autocentre = EEPROM.read(EE_AUTOCENTRE);
 
-  // by default  
-//  if (pollMPU >1)
-//  {
-//    pollMPU = 1;
-//    autocentre = 1;
-//    EEPROM.write(EE_POLLMPU,pollMPU); 
-//    EEPROM.write(EE_AUTORECENTRE,autocentre); 
-//  }
+  // by default
+  //  if (pollMPU >1)
+  //  {
+  //    pollMPU = 1;
+  //    autocentre = 1;
+  //    EEPROM.write(EE_POLLMPU,pollMPU);
+  //    EEPROM.write(EE_AUTORECENTRE,autocentre);
+  //  }
 
   xDriftComp = (float)readIntEE(EE_XDRIFTCOMP) / 256.0;
 
@@ -371,22 +377,22 @@ void loop()
       float newX = -atan2(2.0 * (q.x * q.y + q.w * q.z), q.w * q.w + q.x * q.x - q.y * q.y - q.z * q.z);
 
       // if we're still in the initial 'settling' period do nothing else...
-//      if (nowMillis < calibrateTime)
-//      {
-//        return;
-//      }
+      //      if (nowMillis < calibrateTime)
+      //      {
+      //        return;
+      //      }
 
       // scale to range -32767 to 32767
       newX = newX   * 10430.06;
       newY = newY   * 10430.06;
       newZ = newZ   * 10430.06;
 
-//      if (outputMode == DBG)
-//      {
-//        Serial.println("-");
-//        Serial.print("newX ");
-//        Serial.println(newX);
-//      }
+      //      if (outputMode == DBG)
+      //      {
+      //        Serial.println("-");
+      //        Serial.print("newX ");
+      //        Serial.println(newX);
+      //      }
 
       if (!calibrated)
       {
@@ -409,9 +415,10 @@ void loop()
           recalibrateSamples = 10;// reduce calibrate next time around
           if (outputMode == UI)
           {
-            Serial.print("I\t");
-            Serial.println(infoString);
-           // Serial.println("M\tRec'd");
+            //            Serial.print("I\t");
+            //            Serial.println(infoString);
+            sendInfo();
+            // Serial.println("M\tRec'd");
           }
           //pushBias2DMP();
         }
@@ -425,7 +432,7 @@ void loop()
         return;
       }
 
-      short mag[3];
+      //short mag[3];
       unsigned long timestamp;
 
       // mpu_get_compass_reg(mag, &timestamp);
@@ -454,6 +461,8 @@ void loop()
       newY = constrain(newY, -16383.0, 16383.0);
       newZ = constrain(newZ, -16383.0, 16383.0);
 
+      //newX = newX - aTemp*5.5;
+      
       //            if (outputMode == DBG)
       //      {
       //            Serial.print("newX constrained  ");
@@ -463,10 +472,13 @@ void loop()
       long  iY ;
       long  iZ ;
 
+      float dzlimit;
+
       if (expScaleMode) {
         iX = (0.000122076 * newX * newX * yawScale) * (newX / abs(newX));
         iY = (0.000122076 * newY * newY * pitchScale) * (newY / abs(newY));
         iZ = (0.000122076 * newZ * newZ * pitchScale) * (newZ / abs(newZ));
+        dzlimit = 33.0 * yawScale;
       }
       else
       {
@@ -474,7 +486,10 @@ void loop()
         iX = (newX * yawScale );
         iY = (newY * pitchScale );
         iZ = (newZ * pitchScale );
+        dzlimit = 30.0 * yawScale;
       }
+      
+      dzlimit *= (float)autocentre;
 
       // clamp after scaling to keep values within 16 bit range
       iX = constrain(iX, -32767, 32767);
@@ -482,16 +497,9 @@ void loop()
       iZ = constrain(iZ, -32767, 32767);
 
       // Do it to it.
-      //if (!hush)
-      {
-        joySt.xAxis = iX ;
-        joySt.yAxis = iY;
-        joySt.zAxis = iZ;
-      }
-//      else
-//      {
-//        joySt.xAxis = joySt.yAxis =  joySt.zAxis = 0;
-//      }
+      joySt.xAxis = iX ;
+      joySt.yAxis = iY;
+      joySt.zAxis = iZ;
 
       if (outputMode == UI)
       {
@@ -509,17 +517,23 @@ void loop()
       }
 
       Tracker.setState(&joySt);
-      reports++;
+      //reports++;
 
 
       //self centering
       // if we're looking ahead, give or take
       //  and not moving
       //  and pitch is levelish then start to count
-      if (autocentre && outputMode != UI)/**/
+
+      if (autocentre > 0 && outputMode != UI)/*!supresscentring )/**/
       {
+        //dzlimit *=(float) autocentre;
+//Serial.print("M\tDZLimit ");
+//Serial.println(dzlimit);
+
         //if (fabs(iX) < 3000.0 && fabs(iX - lX) < 5.0 && fabs(iY) < 800)
-        if (fabs(newX) < 300.0 && fabs(newX - lX) < 1.4 && fabs(iY) < 1000)
+        //if (fabs(newX) < 300.0 && fabs(newX - lX) < 1.4 && fabs(iY) < 1000)
+        if (fabs(newX) < dzlimit  && fabs(newX - lX) < 1.4 && fabs(iY) < 1000)
         {
           ticksInZone++;
           dzX += iX;
@@ -541,7 +555,7 @@ void loop()
 
           // NB this currently causes a small but visible jump in the
           // view. Useful for debugging!
-//          dzX = dzX * 0.01;
+          //          dzX = dzX * 0.01;
           cx += dzX * 0.01;
           ticksInZone = 0;
           dzX = 0.0;
@@ -577,30 +591,22 @@ void loop()
           dX += (newX - lastX);
         }
         lastX = newX;
+        
+        long t;
+        mpu_get_temperature (&t, 0);
+        //aTemp = aTemp * 0.95+((((float)t/32767.0)-32.0)/1.8)*0.05;
 
-
-        DEBUG_PRINT("X/Y/Z\t");
-        DEBUG_PRINT(newX  );
-        DEBUG_PRINT("\t\t");
-        DEBUG_PRINT(newY );
-        DEBUG_PRINT("\t\t");
-        DEBUG_PRINT(newZ );
-        DEBUG_PRINT("\t\t");
-
-        DEBUG_PRINTLN(dX / (float)driftSamples);
         if (outputMode == UI)
         {
           Serial.print("D\t");
-          Serial.print(dX / (float)driftSamples,5);
+          Serial.print(dX / (float)driftSamples, 5);
           Serial.print("\t");
-          Serial.println(xDriftComp,5);
+          Serial.println(xDriftComp, 5);
 
           //          Serial.print("M\t Updates per second ");
           //          Serial.println(reports);
-          reports = 0;
-
-          long t;
-          mpu_get_temperature (&t, 0);
+          //reports = 0;
+          
           Serial.print("T\t");
           Serial.println(t);
         }
@@ -624,72 +630,73 @@ void parseInput()
 
 
 
-//    if (command == 'e' || command == 'E' ||
-//        command == 'f' || command == 'F' ||
-//        command == 'c' || command == 'C' ||
-//        command == 'd' || command == 'G')
-//if (
-//(command >= 'c' && command <= 'f') || 
-//(command >= 'E' && command <= 'G') ||
-//command == 'C')
-  //      {
-    
+    //    if (command == 'e' || command == 'E' ||
+    //        command == 'f' || command == 'F' ||
+    //        command == 'c' || command == 'C' ||
+    //        command == 'd' || command == 'G')
+    //if (
+    //(command >= 'c' && command <= 'f') ||
+    //(command >= 'E' && command <= 'G') ||
+    //command == 'C')
+    //      {
+
     bool scale = false;
-      if (command == 'c')
-      {
-        yawScale += 0.25;
-        scale=true;
-      }
-      if (command == 'C')
-      {
-        yawScale += 1.0;
-        scale=true;
-      }
+    if (command == 'c')
+    {
+      yawScale += 0.25;
+      scale = true;
+    }
+    if (command == 'C')
+    {
+      yawScale += 1.0;
+      scale = true;
+    }
 
-      if (command == 'd')
-      {
-        yawScale -= 0.25;
-        scale=true;
-      }
-      if (command == 'G')
-      {
-        yawScale -= 1.0;
-        scale=true;
-      }
+    if (command == 'd')
+    {
+      yawScale -= 0.25;
+      scale = true;
+    }
+    if (command == 'G')
+    {
+      yawScale -= 1.0;
+      scale = true;
+    }
 
-      if (command == 'e')
-      {
-        pitchScale += 0.25;
-        scale=true;
-      }
-      if (command == 'E')
-      {
-        pitchScale += 1.0;
-        scale=true;
-      }
+    if (command == 'e')
+    {
+      pitchScale += 0.25;
+      scale = true;
+    }
+    if (command == 'E')
+    {
+      pitchScale += 1.0;
+      scale = true;
+    }
 
-      if (command == 'f')
-      {
-        pitchScale -= 0.25;
-        scale=true;
-      }
-      if (command == 'F')
-      {
-        pitchScale -= 1.0;
-        scale=true;
-      }
-if (scale)
-{
+    if (command == 'f')
+    {
+      pitchScale -= 0.25;
+      scale = true;
+    }
+    if (command == 'F')
+    {
+      pitchScale -= 1.0;
+      scale = true;
+    }
+    if (scale)
+    {
       setScales();
       scl();
-}
+    }
 
-//    }
-//else
+    //    }
+    //else
     if (command == 'S')
     {
       outputMode = OFF;
       Serial.println("S"); //silent
+      supresscentring = false;
       dmp_set_fifo_rate(DEFAULT_MPU_HZ);
 
     }
@@ -715,8 +722,10 @@ if (scale)
     else if (command == 'V')
     {
       Serial.println("V"); //verbose
-      Serial.print("I\t");
-      Serial.println(infoString);
+supresscentring=false;
+      //Serial.print("I\t");
+      //Serial.println(infoString);
+      sendInfo();
 
       scl();
 
@@ -727,13 +736,15 @@ if (scale)
     }
     else if (command == 'I')
     {
-      Serial.print("I\t");
-      Serial.println(infoString);
+      //Serial.print("I\t");
+      //Serial.println(infoString);
+      sendInfo();
 
       Serial.println("M\t----------------");
 
-      Serial.print("O\t");
-      Serial.println(orientation);
+      //Serial.print("O\t");
+      //Serial.println(orientation);
+      //sendByte('O', orientation);
 
       Serial.print("M\tDrift Comp");
       Serial.println(xDriftComp);
@@ -747,15 +758,14 @@ if (scale)
 
       Serial.print("M\tMPU Revision ");
       Serial.println(revision);
-
       scl();
       //polling();
-      sendBool('p',pollMPU);
+      sendByte('p', pollMPU);
 
-      Serial.print("O\t");
-      Serial.println(orientation);
-      
-      sendBool('#',autocentre);
+      //      Serial.print("O\t");
+      //      Serial.println(orientation);
+      sendByte('O', orientation);
+      sendByte('#', autocentre);
 
     }
     else if (command == 'P')
@@ -764,8 +774,9 @@ if (scale)
       orientation = (orientation + 1) % 6; //0 to 5
       dmp_set_orientation(gyro_orients[orientation]);
       mpu_set_dmp_state(1);
-      Serial.print("O\t");
-      Serial.println(orientation);
+      //Serial.print("O\t");
+      //Serial.println(orientation);
+      sendByte('O', orientation);
       EEPROM.write(EE_ORIENTATION, orientation);
     }
     else if (command == 'R')
@@ -789,28 +800,33 @@ if (scale)
     }
     else if (command == '#')
     {
-      autocentre= !autocentre;
+      autocentre = (autocentre + 1) % 4;
       EEPROM.write(EE_AUTOCENTRE, autocentre);
       //autocentring();
-      sendBool('#',autocentre);
+      sendByte('#', autocentre);
     }
-     else if (command == 'a')
+    else if (command == 'a')
     {
-      xDriftComp=xDriftComp-0.01;
-writeIntEE(EE_XDRIFTCOMP, (int)(xDriftComp * 256.0));      
+      xDriftComp = xDriftComp - 0.01;
+      writeIntEE(EE_XDRIFTCOMP, (int)(xDriftComp * 256.0));
     }
-       else if (command == 'A')
+    else if (command == 'A')
     {
-      xDriftComp=xDriftComp+0.01;
-writeIntEE(EE_XDRIFTCOMP, (int)(xDriftComp * 256.0));      
+      xDriftComp = xDriftComp + 0.01;
+      writeIntEE(EE_XDRIFTCOMP, (int)(xDriftComp * 256.0));
+    }
+    else if (command =='^')
+    {
+      supresscentring=!supresscentring;
+      sendByte('^', supresscentring);
     }
     //    else if (command == 'F')
     //    {
     //      pushBias2DMP();
     //    }
 
-    while (Serial.available() > 0)
-      command = Serial.read();
+//    while (Serial.available() > 0)
+//      command = Serial.read();
   }
 }
 
@@ -830,13 +846,6 @@ ISR(INT6_vect) {
 void tap_cb (unsigned char p1, unsigned char p2)
 {
   return;
-  //  if (outputMode == UI)
-  //  {
-  //    Serial.print("M\tTap Detected");
-  ////    Serial.print((int)p1);
-  ////    Serial.print(" ");
-  ////    Serial.println((int)p2);
-  //  }
 }
 
 
@@ -912,14 +921,7 @@ void enable_mpu() {
 
 //
 void loadBiases() {
-  //  gBias[0] = readLongEE (EE_XGYRO);
-  //  gBias[1] = readLongEE (EE_YGYRO);
-  //  gBias[2] = readLongEE (EE_ZGYRO);
-  //
-  //  aBias[0] = readLongEE (EE_XACCEL);
-  //  aBias[1] = readLongEE (EE_YACCEL);
-  //  aBias[2] = readLongEE (EE_ZACCEL);
-
+  
   for (int i = 0; i < 3; i++)
   {
     gBias[i] = readLongEE (EE_XGYRO  + i * 4);
@@ -939,16 +941,11 @@ void loadBiases() {
 
 void blink()
 {
-//  unsigned short delta = 100;
-//
-//  if (calibrated)
-//    delta = 300;
-
   if (nowMillis > lastMillis )
   {
     blinkState = !blinkState;
     digitalWrite(LED_PIN, blinkState);
-    lastMillis = nowMillis+500;
+    lastMillis = nowMillis + 500;
   }
 }
 
@@ -960,7 +957,6 @@ void tripple(short *v)
     Serial.print("\t");
   }
 }
-
 
 void mess(char *m, long*v)
 {
@@ -982,7 +978,7 @@ void getScales()
     if (yawScale == 0 || yawScale > 60)
       yawScale = 14.0;
 
-    if (pitchScale == 0 || pitchScale >60)
+    if (pitchScale == 0 || pitchScale > 60)
       pitchScale = 14.0;
   }
   else
@@ -1013,26 +1009,24 @@ void setScales()
   }
 }
 
-/*
-void 
-polling()    // Read only in main sketch
+void sendBool(char x, boolean v)
 {
-  Serial.print("p\t");
-  Serial.println(pollMPU);
+  Serial.print(x);
+  Serial.print("\t");
+  Serial.println(v);
 }
 
-void 
-autocentring()  
+void sendByte(char x, byte b)
 {
-     Serial.print("#\t");
-     Serial.println(autocentre);
-}
-*/
-void sendBool(char x,boolean v)
-{
-    Serial.print(x);
+  Serial.print(x);
   Serial.print("\t");
-       Serial.println(v);
+  Serial.println(b);
+}
+
+void sendInfo()
+{
+  Serial.print("I\t");
+  Serial.println(infoString);
 }
 
 void

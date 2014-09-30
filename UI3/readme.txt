@@ -1,4 +1,8 @@
-EDTracker UI V3.0
+EDTracker UI V3.0.2
+
+
+30/09/2014 - Fix auto-centre bug for exponential. Add more auto-centre options. Fix temperature display.
+
 
 
 Requires .Net Framework 4.5 available from http://www.microsoft.com/en-us/download/details.aspx?id=30653
