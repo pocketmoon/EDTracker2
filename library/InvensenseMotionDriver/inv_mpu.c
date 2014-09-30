@@ -1014,8 +1014,8 @@ uint8_t mpu_get_temperature(long *data, unsigned long *timestamp)
     if (timestamp)
         get_ms(timestamp);
 
-    data[0] = (long)((35 + ((raw - (float)st.hw->temp_offset) / st.hw->temp_sens)) * 65536L);
-	//data[0] = (long)(((float)raw /340.0)+36.53) * 65536L;
+   // data[0] = (long)((35 + ((raw - (float)st.hw->temp_offset) / st.hw->temp_sens)) * 65536L);
+    data[0] = (long)((((float)raw /340.0)+36.53) * 65536.0);
     return 0;
 }
 
