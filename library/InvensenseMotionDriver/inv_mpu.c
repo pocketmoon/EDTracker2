@@ -2062,7 +2062,7 @@ static int get_st_biases_test(long *gyro, long *accel, unsigned char hw_test)
     if (i2c_write(st.hw->addr, st.reg->gyro_cfg, 1, data))
         return -1;
 
-    if (hw_test)ma
+    if (hw_test)
         data[0] = st.test->reg_accel_fsr | 0xE0;
     else
         data[0] = test.reg_accel_fsr;
