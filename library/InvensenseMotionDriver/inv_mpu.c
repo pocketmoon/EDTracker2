@@ -3074,8 +3074,8 @@ void  mpu_read_6050_accel_bias(long *accel_bias) {
 void  mpu_set_accel_bias_6050_reg(const long *accel_bias, unsigned char relative)
 {
     //unsigned char data[6] = {0, 0, 0, 0, 0, 0};
-	unsigned char data[2] = {0, 0, 0, 0, 0, 0};
-    long accel_reg_bias[3] = {0, 0, 0};
+	unsigned char data[2] ;
+    long accel_reg_bias[3] ;
     //long mask = 0x0001;
     //unsigned char mask_bit[3] = {0, 0, 0};
     unsigned char i ;
